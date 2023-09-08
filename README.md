@@ -1,2 +1,2 @@
-# sing-box-converter
-Convert any ss , vmess/vless, trojan, wireguard to sing-box.
+# sing-box converter
+it's a lib(+GUI) tool to convert any proxy to sing-box.
