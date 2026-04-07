@@ -2,14 +2,25 @@
 
 it's a lib(+GUI) tool to convert any proxy to sing-box.
 
-## Usage
-
+## Usage(CLI):
 ```
 $sing-box-converter "ss://..."
 {
     ...
 }
+
+$sing-box-converter "vless://..." > config.json
 ```
+
+## Usage(lib):
+```python
+import sing-box-converter
+
+# TODO
+```
+
+## Usage(GUI):
+> TODO: Picture...
 
 ## Contributing
 
