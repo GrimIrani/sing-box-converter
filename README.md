@@ -2,7 +2,15 @@
 
 it's a lib(+GUI) tool to convert any proxy to sing-box.
 
-## Usage(CLI):
+## Quick:
+this is a quick knowledge good for know:
+we have 3 kind of passing connection:
+- direct: Which means DO NOT USE the proxy.
+- block: Which means BLOCK THEM.
+- proxy: Which means TO BE proxified.
+
+
+### Usage(CLI):
 ```
 $sing-box-converter "ss://..."
 {
@@ -12,7 +20,7 @@ $sing-box-converter "ss://..."
 $sing-box-converter "vless://..." > config.json
 ```
 
-## Usage(lib):
+### Usage(lib):
 ```python
 import singboxconverter as sbc
 
@@ -24,7 +32,7 @@ sbc.export("config.json")
 # or: sbc.connect(tun=True)
 ```
 
-## Usage(GUI):
+### Usage(GUI):
 > TODO: Picture...
 
 ## Contributing
