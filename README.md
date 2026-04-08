@@ -14,9 +14,14 @@ $sing-box-converter "vless://..." > config.json
 
 ## Usage(lib):
 ```python
-import sing-box-converter
+import singboxconverter as sbc
 
-# TODO
+proxy = "vless://..."
+
+sbc.add(proxy)
+
+sbc.export("config.json")
+# or: sbc.connect(tun=True)
 ```
 
 ## Usage(GUI):
