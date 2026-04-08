@@ -1,0 +1,7 @@
+- trace
+- debug
+- info(Default one)
+- warn
+- error
+- fetal
+- panic
