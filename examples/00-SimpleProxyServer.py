@@ -5,14 +5,16 @@ which is meant to be a simple socks5 server.
 
 import singboxconverter as sbc
 
-sbc.addProxy("127.0.0.1", "1080")
+config = sbc.Config()
 
-# sbc.block("geosite:nsfw")
-# sbc.proxy("geoip:us")
-# sbc.direct("https://google.com")
+config.inbound("127.0.0.1", "1080")
+config.outbound("direct")
 
-# For make all the connections direct/proxy/block:
-# sbc.default("direct")
+config.block("geosite:nsfw")
+config.proxy("geoip:us")
+config.direct("https://google.com")
 
-sbc.export("config.json")
-# or: sbc.connect()
+config.default("direct")
+
+config.export("config.json")
+# or: config.connect() / config.tun() / config.system_proxy()

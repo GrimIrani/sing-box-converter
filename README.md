@@ -12,7 +12,7 @@ we have 3 kind of passing connection:
 
 ### Usage(CLI):
 ```
-$sing-box-converter "ss://..."
+$sing-box-converter "ss://..." --dns 1.1.1.1 -- 
 {
     ...
 }
@@ -24,12 +24,17 @@ $sing-box-converter "vless://..." > config.json
 ```python
 import singboxconverter as sbc
 
-proxy = "vless://..."
+config = sbc.Config()
 
-sbc.add(proxy)
+config.inbound("127.0.0.1", "1080")
+config.outbound("direct")
 
-sbc.export("config.json")
-# or: sbc.connect(tun=True)
+config.block("geosite:nsfw")
+config.proxy("geoip:us")
+config.direct("https://google.com")
+
+config.export("config.json")
+# or: config.connect() / config.tun() / config.system_proxy()
 ```
 
 ### Usage(GUI):
