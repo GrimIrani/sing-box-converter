@@ -1,7 +1,11 @@
 class Direct:
     """Direct with no-proxy"""
 
-    pass
+    def __init__(self):
+        return {
+            "type": "direct",
+            "tag": "out-internal",
+        }
 
 
 class Block:
