@@ -1,18 +1,21 @@
 class Direct:
     """Direct with no-proxy"""
 
-    def __init__(self):
+    def __init__(self, tag="out-internal"):
         return {
             "type": "direct",
-            "tag": "out-internal",
+            "tag": tag,
         }
 
 
 class Block:
     """Block anything"""
-
-    pass
-
+    
+    def __init__(self, tag="out-internal"):
+        return {
+            "type": "block",
+            "tag": tag,
+        }
 
 class Http:
     pass
