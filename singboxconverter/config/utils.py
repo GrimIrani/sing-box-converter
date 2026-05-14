@@ -39,7 +39,7 @@ def parse_rule(rule_str):
 
     if "." in rule_str:
         domain = rule_str.lstrip(".")
-        return {"domain_suffix": ["." + domain]}
+        return {"domain_suffix": [domain]}
 
     raise ValueError(
         f"Cannot parse rule: {rule_str!r}. "

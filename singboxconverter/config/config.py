@@ -72,7 +72,7 @@ class Config:
         if detour:
             out["detour"] = detour
         self._outbounds.append(out)
-        if out.get("type") not in ("direct", "block") and self._proxy_tag is None:
+        if out.get("type") not in ("direct", "block"):
             self._proxy_tag = out.get("tag")
         return self
 
@@ -250,7 +250,7 @@ class Config:
         rule_sets = route.setdefault("rule_set", [])
         seen_tags = {rs["tag"] for rs in rule_sets}
 
-        sni_rules = [{"action": "sniff"}]
+        sni_rules = []
 
         for sni_cfg in self._sni_configs:
             address = sni_cfg["address"]
@@ -267,7 +267,6 @@ class Config:
                 out = proxy_tag
 
             sni_rules.append({
-                "action": "route",
                 "rule_set": [tag],
                 "outbound": out,
                 "override_address": address,
@@ -423,6 +422,8 @@ def _resolve_outbound(arg):
     if isinstance(arg, str):
         if arg == "direct":
             return Direct()
+        if arg == "block":
+            return Block()
         if "://" in arg:
             return parse_outbound_uri(arg)
         raise ValueError(f"Unknown outbound: {arg!r}")
