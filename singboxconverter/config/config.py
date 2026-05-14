@@ -60,35 +60,49 @@ class Config:
             raise ValueError("inbound() takes a URI string, (address, port), or a dict")
         return self
 
-    def outbound(self, *args):
+    def outbound(self, arg, *, detour=None):
         """Add an outbound.
 
-        config.outbound("direct")       -> Direct
-        config.outbound("vless://...")   -> Vless
-        config.outbound("ss://...")      -> Shadowsocks
-        config.outbound("vmess://...")   -> Vmess
-        config.outbound("trojan://...") -> Trojan
+        config.outbound("direct")                        -> Direct
+        config.outbound("vless://...")                    -> Vless
+        config.outbound("vless://...", detour="hop-1")   -> Vless through hop-1
         """
-        if len(args) != 1:
-            raise ValueError("outbound() takes exactly one argument")
+        out = _resolve_outbound(arg)
+        if detour:
+            out["detour"] = detour
+        self._outbounds.append(out)
+        if out.get("type") not in ("direct", "block") and self._proxy_tag is None:
+            self._proxy_tag = out.get("tag")
+        return self
 
-        arg = args[0]
-        if isinstance(arg, dict):
-            self._outbounds.append(arg)
-            if arg.get("type") not in ("direct", "block") and self._proxy_tag is None:
-                self._proxy_tag = arg.get("tag")
-        elif isinstance(arg, str):
-            if arg == "direct":
-                self._outbounds.append(Direct())
-            elif "://" in arg:
-                out = parse_outbound_uri(arg)
-                self._outbounds.append(out)
-                if self._proxy_tag is None:
-                    self._proxy_tag = out["tag"]
-            else:
-                raise ValueError(f"Unknown outbound: {arg!r}")
-        else:
-            raise TypeError(f"outbound() expects str or dict, got {type(arg)}")
+    def chain(self, *outbounds):
+        """Add chained outbounds (proxy chain).
+
+        Each outbound connects through the previous one.
+        The last one becomes the proxy target.
+
+            config.chain(
+                "socks5://127.0.0.1:1081#hop-1",
+                "vless://uuid@server:443?security=tls&sni=example.com#proxy",
+            )
+            # vless connects through socks5
+
+        Accepts URI strings or outbound dict objects.
+        """
+        if len(outbounds) < 2:
+            raise ValueError("chain() requires at least 2 outbounds")
+
+        parsed = [_resolve_outbound(o) for o in outbounds]
+
+        for i in range(1, len(parsed)):
+            parsed[i]["detour"] = parsed[i - 1]["tag"]
+
+        for out in parsed:
+            self._outbounds.append(out)
+
+        if self._proxy_tag is None:
+            self._proxy_tag = parsed[-1]["tag"]
+
         return self
 
     # ── routing rules ─────────────────────────────────────────────────────
@@ -313,6 +327,18 @@ class Config:
             f"outbounds={len(self._outbounds)}, "
             f"rules={len(self._rules)}, {status})"
         )
+
+
+def _resolve_outbound(arg):
+    if isinstance(arg, dict):
+        return arg
+    if isinstance(arg, str):
+        if arg == "direct":
+            return Direct()
+        if "://" in arg:
+            return parse_outbound_uri(arg)
+        raise ValueError(f"Unknown outbound: {arg!r}")
+    raise TypeError(f"Expected str or dict, got {type(arg)}")
 
 
 def _parse_inbound_uri(uri):
