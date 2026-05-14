@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from .outbound import Direct, Block
 from .inbound import Mixed, Socks as SocksInbound, Http as HttpInbound
-from .utils import parse_rule
+from .utils import parse_rule, build_rule_sets
 from ..protocols import parse_outbound_uri
 from ..methods.log import build as build_log
 from ..methods.dns import build as build_dns
@@ -23,7 +23,7 @@ class Config:
             ...  # sing-box is running
     """
 
-    def __init__(self, *, binary=None, geoip=None, geosite=None):
+    def __init__(self, *, binary=None):
         self._inbounds = []
         self._outbounds = []
         self._rules = []
@@ -34,8 +34,6 @@ class Config:
         self._process = None
         self._config_path = None
         self._binary = binary
-        self._geoip = geoip
-        self._geosite = geosite
 
     # ── inbound / outbound ────────────────────────────────────────────────
 
@@ -152,7 +150,7 @@ class Config:
 
     # ── build ─────────────────────────────────────────────────────────────
 
-    def _build(self, geoip_path=None, geosite_path=None):
+    def _build(self):
         outbounds = list(self._outbounds)
 
         if not any(o.get("type") == "direct" for o in outbounds):
@@ -193,10 +191,9 @@ class Config:
 
         if rules or final:
             route = {"rules": rules, "final": final}
-            if geoip_path and any("geoip" in r for r in rules):
-                route["geoip"] = {"path": geoip_path}
-            if geosite_path and any("geosite" in r for r in rules):
-                route["geosite"] = {"path": geosite_path}
+            rule_sets = build_rule_sets(rules)
+            if rule_sets:
+                route["rule_set"] = rule_sets
             config["route"] = route
 
         return config
@@ -217,23 +214,19 @@ class Config:
 
     # ── run / connect ─────────────────────────────────────────────────────
 
-    def _resolve_runtime(self):
-        from ..runtime import ensure_binary, ensure_databases
-
-        binary = self._binary or ensure_binary()
-        if self._geoip and self._geosite:
-            geoip, geosite = self._geoip, self._geosite
-        else:
-            geoip, geosite = ensure_databases()
-        return binary, geoip, geosite
+    def _resolve_binary(self):
+        if self._binary:
+            return self._binary
+        from ..runtime import ensure_binary
+        return ensure_binary()
 
     def run(self):
-        """Download dependencies, export config, and run sing-box (blocking).
+        """Download sing-box if needed, export config, and run (blocking).
 
         Blocks until the process exits or is interrupted with Ctrl+C.
         """
-        binary, geoip, geosite = self._resolve_runtime()
-        config = self._build(geoip_path=geoip, geosite_path=geosite)
+        binary = self._resolve_binary()
+        config = self._build()
 
         fd, path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
         try:
@@ -258,8 +251,8 @@ class Config:
         if self._process and self._process.poll() is None:
             raise RuntimeError("Already connected, call disconnect() first")
 
-        binary, geoip, geosite = self._resolve_runtime()
-        config = self._build(geoip_path=geoip, geosite_path=geosite)
+        binary = self._resolve_binary()
+        config = self._build()
 
         fd, self._config_path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
         with os.fdopen(fd, "w") as f:

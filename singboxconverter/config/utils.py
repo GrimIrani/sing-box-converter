@@ -3,6 +3,9 @@ from urllib.parse import urlparse
 
 _IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$")
 
+GEOSITE_URL = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
+GEOIP_URL = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set"
+
 
 def parse_rule(rule_str):
     """Parse a rule string into a partial sing-box route rule dict.
@@ -10,8 +13,8 @@ def parse_rule(rule_str):
     The caller must add the "outbound" field.
 
     Supported formats:
-        geosite:category  -> {"geosite": ["category"]}
-        geoip:code        -> {"geoip": ["code"]}
+        geosite:category  -> {"rule_set": ["geosite-category"]}
+        geoip:code        -> {"rule_set": ["geoip-code"]}
         1.2.3.4           -> {"ip_cidr": ["1.2.3.4/32"]}
         1.2.3.0/24        -> {"ip_cidr": ["1.2.3.0/24"]}
         https://host/...  -> {"domain": ["host"]}
@@ -19,11 +22,11 @@ def parse_rule(rule_str):
     """
     if rule_str.startswith("geosite:"):
         value = rule_str.split(":", 1)[1]
-        return {"geosite": [value]}
+        return {"rule_set": [f"geosite-{value}"]}
 
     if rule_str.startswith("geoip:"):
         value = rule_str.split(":", 1)[1]
-        return {"geoip": [value]}
+        return {"rule_set": [f"geoip-{value}"]}
 
     if rule_str.startswith("http://") or rule_str.startswith("https://"):
         parsed = urlparse(rule_str)
@@ -42,3 +45,31 @@ def parse_rule(rule_str):
         f"Cannot parse rule: {rule_str!r}. "
         "Expected geosite:X, geoip:X, IP, URL, or domain."
     )
+
+
+def build_rule_sets(rules):
+    """Collect rule_set tags from rules and build remote rule_set definitions."""
+    tags = set()
+    for rule in rules:
+        for tag in rule.get("rule_set", []):
+            tags.add(tag)
+
+    if not tags:
+        return []
+
+    rule_sets = []
+    for tag in sorted(tags):
+        if tag.startswith("geosite-"):
+            url = f"{GEOSITE_URL}/{tag}.srs"
+        elif tag.startswith("geoip-"):
+            url = f"{GEOIP_URL}/{tag}.srs"
+        else:
+            continue
+        rule_sets.append({
+            "tag": tag,
+            "type": "remote",
+            "format": "binary",
+            "url": url,
+            "download_detour": "out-direct",
+        })
+    return rule_sets

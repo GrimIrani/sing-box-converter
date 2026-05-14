@@ -153,11 +153,9 @@ def ensure_databases():
 
 
 def setup():
-    """Download sing-box binary and geo databases.
+    """Download sing-box binary.
 
     Returns:
-        (binary_path, geoip_path, geosite_path) tuple.
+        Path to the sing-box binary.
     """
-    binary = ensure_binary()
-    geoip, geosite = ensure_databases()
-    return binary, geoip, geosite
+    return ensure_binary()
