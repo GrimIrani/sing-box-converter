@@ -23,7 +23,7 @@ class Config:
             ...  # sing-box is running
     """
 
-    def __init__(self):
+    def __init__(self, *, binary=None, geoip=None, geosite=None):
         self._inbounds = []
         self._outbounds = []
         self._rules = []
@@ -33,6 +33,9 @@ class Config:
         self._log_level = None
         self._process = None
         self._config_path = None
+        self._binary = binary
+        self._geoip = geoip
+        self._geosite = geosite
 
     # ── inbound / outbound ────────────────────────────────────────────────
 
@@ -214,15 +217,22 @@ class Config:
 
     # ── run / connect ─────────────────────────────────────────────────────
 
+    def _resolve_runtime(self):
+        from ..runtime import ensure_binary, ensure_databases
+
+        binary = self._binary or ensure_binary()
+        if self._geoip and self._geosite:
+            geoip, geosite = self._geoip, self._geosite
+        else:
+            geoip, geosite = ensure_databases()
+        return binary, geoip, geosite
+
     def run(self):
         """Download dependencies, export config, and run sing-box (blocking).
 
         Blocks until the process exits or is interrupted with Ctrl+C.
         """
-        from ..runtime import ensure_binary, ensure_databases
-
-        binary = ensure_binary()
-        geoip, geosite = ensure_databases()
+        binary, geoip, geosite = self._resolve_runtime()
         config = self._build(geoip_path=geoip, geosite_path=geosite)
 
         fd, path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
@@ -245,13 +255,10 @@ class Config:
             with config.connect() as c:
                 ...
         """
-        from ..runtime import ensure_binary, ensure_databases
-
         if self._process and self._process.poll() is None:
             raise RuntimeError("Already connected, call disconnect() first")
 
-        binary = ensure_binary()
-        geoip, geosite = ensure_databases()
+        binary, geoip, geosite = self._resolve_runtime()
         config = self._build(geoip_path=geoip, geosite_path=geosite)
 
         fd, self._config_path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
