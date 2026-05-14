@@ -1,10 +1,15 @@
 import json
+import os
+import subprocess
+import tempfile
 from urllib.parse import urlparse
 
 from .outbound import Direct, Block
 from .inbound import Mixed, Socks as SocksInbound, Http as HttpInbound
 from .utils import parse_rule
 from ..protocols import parse_outbound_uri
+from ..methods.log import build as build_log
+from ..methods.dns import build as build_dns
 
 
 class Config:
@@ -12,6 +17,10 @@ class Config:
 
     Supports fluent chaining:
         config = Config().inbound(...).outbound(...).block(...).export(...)
+
+    Supports context manager for connect/disconnect:
+        with Config().inbound(...).outbound(...) as c:
+            ...  # sing-box is running
     """
 
     def __init__(self):
@@ -20,6 +29,12 @@ class Config:
         self._rules = []
         self._final = "out-direct"
         self._proxy_tag = None
+        self._dns_servers = []
+        self._log_level = None
+        self._process = None
+        self._config_path = None
+
+    # ── inbound / outbound ────────────────────────────────────────────────
 
     def inbound(self, *args):
         """Add an inbound.
@@ -51,6 +66,7 @@ class Config:
         config.outbound("vless://...")   -> Vless
         config.outbound("ss://...")      -> Shadowsocks
         config.outbound("vmess://...")   -> Vmess
+        config.outbound("trojan://...") -> Trojan
         """
         if len(args) != 1:
             raise ValueError("outbound() takes exactly one argument")
@@ -73,6 +89,8 @@ class Config:
         else:
             raise TypeError(f"outbound() expects str or dict, got {type(arg)}")
         return self
+
+    # ── routing rules ─────────────────────────────────────────────────────
 
     def block(self, rule_str):
         """Route matching traffic to the block outbound."""
@@ -107,7 +125,31 @@ class Config:
             self._final = mode
         return self
 
-    def _build(self):
+    # ── dns / log ─────────────────────────────────────────────────────────
+
+    def dns(self, *servers):
+        """Add DNS server(s).
+
+        Accepts raw addresses or preset names:
+            config.dns("tls://8.8.8.8")
+            config.dns("google", "cloudflare")
+            config.dns("https://1.1.1.1/dns-query")
+        """
+        for s in servers:
+            self._dns_servers.append(s)
+        return self
+
+    def log(self, level="info"):
+        """Set log level.
+
+        Levels: disable, trace, debug, info, warn, error, fatal, panic
+        """
+        self._log_level = level
+        return self
+
+    # ── build ─────────────────────────────────────────────────────────────
+
+    def _build(self, geoip_path=None, geosite_path=None):
         outbounds = list(self._outbounds)
 
         if not any(o.get("type") == "direct" for o in outbounds):
@@ -135,15 +177,28 @@ class Config:
         if final == "__proxy__":
             final = proxy_tag
 
-        config = {
-            "inbounds": list(self._inbounds),
-            "outbounds": outbounds,
-        }
+        config = {}
+
+        if self._log_level:
+            config["log"] = build_log(self._log_level)
+
+        if self._dns_servers:
+            config["dns"] = build_dns(self._dns_servers)
+
+        config["inbounds"] = list(self._inbounds)
+        config["outbounds"] = outbounds
 
         if rules or final:
-            config["route"] = {"rules": rules, "final": final}
+            route = {"rules": rules, "final": final}
+            if geoip_path and any("geoip" in r for r in rules):
+                route["geoip"] = {"path": geoip_path}
+            if geosite_path and any("geosite" in r for r in rules):
+                route["geosite"] = {"path": geosite_path}
+            config["route"] = route
 
         return config
+
+    # ── export ────────────────────────────────────────────────────────────
 
     def export(self, path):
         """Write the config to a JSON file."""
@@ -157,11 +212,106 @@ class Config:
         """Return the config as a JSON string."""
         return json.dumps(self._build(), indent=indent)
 
+    # ── run / connect ─────────────────────────────────────────────────────
+
+    def run(self):
+        """Download dependencies, export config, and run sing-box (blocking).
+
+        Blocks until the process exits or is interrupted with Ctrl+C.
+        """
+        from ..runtime import ensure_binary, ensure_databases
+
+        binary = ensure_binary()
+        geoip, geosite = ensure_databases()
+        config = self._build(geoip_path=geoip, geosite_path=geosite)
+
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(config, f, indent=2)
+            print("Starting sing-box...")
+            subprocess.run([binary, "run", "-c", path])
+        except KeyboardInterrupt:
+            print("\nStopping...")
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+        return self
+
+    def connect(self):
+        """Download dependencies, export config, and run sing-box in background.
+
+        Use disconnect() to stop, or use as a context manager:
+            with config.connect() as c:
+                ...
+        """
+        from ..runtime import ensure_binary, ensure_databases
+
+        if self._process and self._process.poll() is None:
+            raise RuntimeError("Already connected, call disconnect() first")
+
+        binary = ensure_binary()
+        geoip, geosite = ensure_databases()
+        config = self._build(geoip_path=geoip, geosite_path=geosite)
+
+        fd, self._config_path = tempfile.mkstemp(suffix=".json", prefix="singbox-")
+        with os.fdopen(fd, "w") as f:
+            json.dump(config, f, indent=2)
+
+        self._process = subprocess.Popen(
+            [binary, "run", "-c", self._config_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        print(f"sing-box started (PID {self._process.pid})")
+        return self
+
+    def disconnect(self):
+        """Stop a background sing-box process started by connect()."""
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+            print("sing-box stopped")
+        self._process = None
+
+        if self._config_path and os.path.exists(self._config_path):
+            os.unlink(self._config_path)
+        self._config_path = None
+        return self
+
+    @property
+    def is_running(self):
+        """True if a background sing-box process is alive."""
+        return self._process is not None and self._process.poll() is None
+
+    # ── context manager / cleanup ─────────────────────────────────────────
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, *exc):
+        self.disconnect()
+
+    def __del__(self):
+        if self._process and self._process.poll() is None:
+            self._process.terminate()
+        if self._config_path and os.path.exists(self._config_path):
+            try:
+                os.unlink(self._config_path)
+            except OSError:
+                pass
+
     def __repr__(self):
+        status = "running" if self.is_running else "idle"
         return (
             f"Config(inbounds={len(self._inbounds)}, "
             f"outbounds={len(self._outbounds)}, "
-            f"rules={len(self._rules)})"
+            f"rules={len(self._rules)}, {status})"
         )
 
 

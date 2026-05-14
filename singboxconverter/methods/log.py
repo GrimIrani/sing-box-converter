@@ -1,15 +1,11 @@
-"""
-We have this kind of log level inside the `sing-box`:
-- disable(return an empty `{}`)
-- trace
-- debug
-- info(Default one)
-- warn
-- error
-- fetal
-- panic
+LEVELS = ("disable", "trace", "debug", "info", "warn", "error", "fatal", "panic")
+DEFAULT = "info"
 
-depends on your choise the report of log will change
-"""
 
-pass
+def build(level="info"):
+    """Build a sing-box log config block."""
+    if level == "disable":
+        return {"disabled": True}
+    if level not in LEVELS:
+        raise ValueError(f"Unknown log level: {level!r}, expected one of {LEVELS}")
+    return {"level": level}
