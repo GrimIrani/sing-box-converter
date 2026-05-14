@@ -165,28 +165,22 @@ class Config:
 
     # ── sni / override ────────────────────────────────────────────────────
 
-    def sni(self, address, *, server_name=None, geosite=None, domains=None,
-            keywords=None, domain_suffix=None, outbound="direct"):
-        """Route domains to a clean IP/host using FakeIP + override_address.
+    def sni(self, address, *, geosite=None, domains=None, keywords=None,
+            domain_suffix=None, outbound="direct"):
+        """Route matched domains to a clean IP or host via override_address.
 
-            # Override to a domain (sing-box resolves it):
-            config.sni("www.google.com", geosite="google")
+        The address is used directly -- IP means no DNS resolution needed.
 
-            # Override to a specific IP:
+            # Pin to a specific IP (no DNS, works behind censorship):
             config.sni("216.239.38.120", geosite="google")
+            config.sni("216.239.38.120",
+                        domains=["docs.google.com", "drive.google.com"])
 
-            # Pin IP + server_name (DNS pins server_name to the IP,
-            # route overrides to server_name):
-            config.sni("216.239.38.120", server_name="www.google.com",
-                        geosite="google")
-
-            # Custom domain list instead of geosite:
-            config.sni("216.239.38.120", server_name="www.google.com",
-                        domains=["docs.google.com", "mail.google.com"])
+            # Override to a domain (requires working DNS for that domain):
+            config.sni("www.google.com", geosite="google")
         """
         self._sni_configs.append({
             "address": address,
-            "server_name": server_name,
             "geosite": geosite,
             "domains": domains or [],
             "keywords": keywords or [],
@@ -249,8 +243,6 @@ class Config:
         return config
 
     def _apply_sni(self, config, proxy_tag):
-        from .utils import _IP_RE
-
         route = config.setdefault("route", {})
         route["auto_detect_interface"] = True
 
@@ -262,33 +254,11 @@ class Config:
 
         for sni_cfg in self._sni_configs:
             address = sni_cfg["address"]
-            server_name = sni_cfg.get("server_name")
-            is_ip = bool(_IP_RE.match(address))
 
             if sni_cfg["geosite"]:
                 tag = f"geosite-{sni_cfg['geosite']}"
             else:
-                name = (server_name or address).replace(".", "-").replace(":", "-")
-                tag = f"sni-{name}"
-
-            # When IP + server_name: pin DNS so server_name resolves to the IP
-            if is_ip and server_name:
-                dns = config.setdefault("dns", {})
-                dns_servers = dns.setdefault("servers", [])
-                dns_rules = dns.setdefault("rules", [])
-                if not any(s.get("tag") == "dns-local" for s in dns_servers):
-                    dns_servers.append({"type": "local", "tag": "dns-local"})
-                dns.setdefault("final", "dns-local")
-                dns_rules.insert(0, {
-                    "action": "predefined",
-                    "domain": [server_name],
-                    "answer": [f"{server_name}. IN A {address}"],
-                    "query_type": ["A"],
-                    "rcode": "NOERROR",
-                })
-                override = server_name
-            else:
-                override = address
+                tag = f"sni-{address.replace('.', '-').replace(':', '-')}"
 
             out = sni_cfg["outbound"]
             if out == "direct":
@@ -300,7 +270,7 @@ class Config:
                 "action": "route",
                 "rule_set": [tag],
                 "outbound": out,
-                "override_address": override,
+                "override_address": address,
             })
 
             if tag not in seen_tags:
