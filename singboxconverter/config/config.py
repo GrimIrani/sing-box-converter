@@ -251,40 +251,14 @@ class Config:
     def _apply_sni(self, config, proxy_tag):
         from .utils import _IP_RE
 
-        # DNS: add fakeip + local servers
-        dns = config.setdefault("dns", {})
-        dns["independent_cache"] = True
-        dns["strategy"] = "ipv4_only"
-        servers = dns.setdefault("servers", [])
-        dns_rules = dns.setdefault("rules", [])
-
-        if not any(s.get("tag") == "dns-local" for s in servers):
-            servers.append({"type": "local", "tag": "dns-local"})
-        if not any(s.get("tag") == "dns-fakeip" for s in servers):
-            servers.append({
-                "type": "fakeip", "tag": "dns-fakeip",
-                "inet4_range": "198.18.0.0/15",
-            })
-        dns.setdefault("final", "dns-local")
-
-        # Route: prepend sniff/hijack/resolve + per-target override rules
         route = config.setdefault("route", {})
         route["auto_detect_interface"] = True
-        route.setdefault("default_domain_resolver", {
-            "server": "dns-local", "strategy": "ipv4_only",
-        })
 
         existing_rules = route.get("rules", [])
         rule_sets = route.setdefault("rule_set", [])
         seen_tags = {rs["tag"] for rs in rule_sets}
 
-        sni_rules = [
-            {"action": "sniff"},
-            {"action": "hijack-dns", "protocol": ["dns"]},
-            {"action": "resolve", "strategy": "ipv4_only"},
-        ]
-
-        override_domains = []
+        sni_rules = [{"action": "sniff"}]
 
         for sni_cfg in self._sni_configs:
             address = sni_cfg["address"]
@@ -297,12 +271,14 @@ class Config:
                 name = (server_name or address).replace(".", "-").replace(":", "-")
                 tag = f"sni-{name}"
 
-            # DNS rule: send matching domains to fakeip
-            dns_rules.append({"rule_set": [tag], "server": "dns-fakeip"})
-
-            # Determine override_address
+            # When IP + server_name: pin DNS so server_name resolves to the IP
             if is_ip and server_name:
-                # Pin DNS: server_name resolves to the given IP
+                dns = config.setdefault("dns", {})
+                dns_servers = dns.setdefault("servers", [])
+                dns_rules = dns.setdefault("rules", [])
+                if not any(s.get("tag") == "dns-local" for s in dns_servers):
+                    dns_servers.append({"type": "local", "tag": "dns-local"})
+                dns.setdefault("final", "dns-local")
                 dns_rules.insert(0, {
                     "action": "predefined",
                     "domain": [server_name],
@@ -311,13 +287,9 @@ class Config:
                     "rcode": "NOERROR",
                 })
                 override = server_name
-            elif is_ip:
-                override = address
             else:
                 override = address
-                override_domains.append(address)
 
-            # Route rule
             out = sni_cfg["outbound"]
             if out == "direct":
                 out = "out-direct"
@@ -331,7 +303,6 @@ class Config:
                 "override_address": override,
             })
 
-            # Rule-set definition (deduplicated)
             if tag not in seen_tags:
                 seen_tags.add(tag)
                 if sni_cfg["geosite"]:
@@ -356,10 +327,6 @@ class Config:
                         "tag": tag,
                         "rules": [inline_rule],
                     })
-
-        # Exclude plain domain overrides from fakeip (resolve them for real)
-        if override_domains:
-            dns_rules.insert(0, {"domain": override_domains, "server": "dns-local"})
 
         route["rules"] = sni_rules + existing_rules
 
