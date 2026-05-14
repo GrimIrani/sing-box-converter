@@ -264,9 +264,15 @@ class Config:
             })
         dns.setdefault("final", "dns-local")
 
-        # Exclude override addresses from fakeip (resolve them for real)
-        override_addrs = [s["address"] for s in self._sni_configs]
-        dns_rules.insert(0, {"domain": override_addrs, "server": "dns-local"})
+        # Exclude override domains from fakeip (resolve them for real)
+        # IPs don't need DNS exclusion -- they bypass DNS entirely
+        from .utils import _IP_RE
+        override_domains = [
+            s["address"] for s in self._sni_configs
+            if not _IP_RE.match(s["address"])
+        ]
+        if override_domains:
+            dns_rules.insert(0, {"domain": override_domains, "server": "dns-local"})
 
         # Route: prepend sniff/hijack/resolve + per-target override rules
         route = config.setdefault("route", {})
