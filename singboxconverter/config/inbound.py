@@ -53,7 +53,7 @@ from typing import Optional
 
 # Tls and Transport are shared between inbound and outbound.
 # TODO: move to config/shared.py once the project grows.
-from config.outbound import Tls, Transport  # noqa: F401  (re-exported for convenience)
+from .outbound import Tls, Transport  # noqa: F401  (re-exported for convenience)
 
 __all__ = [
     # listener
